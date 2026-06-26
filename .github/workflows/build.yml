@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.0
 
       - name: Create Info.plist and Xcode Project
         run: |
@@ -61,7 +61,7 @@ jobs:
           zip -r Rumble.ipa Payload
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.1.0
         with:
           name: Rumble-Success-IPA
           path: Rumble.ipa
