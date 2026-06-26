@@ -1,4 +1,8 @@
 name: Manual Xcode Project Build
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
 on: [workflow_dispatch]
 
 jobs:
