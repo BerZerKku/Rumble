@@ -1,21 +1,31 @@
+# .github/workflows/manual-build.yml
 name: Manual Xcode Project Build
 
+# Переменная для принудительного использования Node.js 24 ДО 16 июня 2026 года
+# Это правильное и рекомендуемое решение, чтобы избежать сбоев в будущем.
 env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch: # Запуск вручную через интерфейс GitHub
 
 jobs:
-  build:
+  build-ios-app:
+    name: Build iOS App (Unsigned)
     runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4.2.0
 
-      - name: Create Info.plist and Xcode Project
+    steps:
+      # 1. Клонирование репозитория (уже использует актуальную версию)
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.0
+
+      # 2. Создание Info.plist и Xcode проекта
+      - name: Generate Project Files
         run: |
+          # Создание Info.plist
           cat <<EOF > Info.plist
           <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com">
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>CFBundleExecutable</key>
@@ -36,32 +46,62 @@ jobs:
           </plist>
           EOF
 
+          # Установка и использование xcodeproj для создания проекта
           gem install xcodeproj
           ruby -e "
           require 'xcodeproj'
           project = Xcodeproj::Project.new('Rumble.xcodeproj')
           target = project.new_target(:application, 'Rumble', :ios, '15.0')
-          target.build_configurations.each { |config| config.build_settings['INFOPLIST_FILE'] = 'Info.plist' }
+          target.build_configurations.each do |config|
+            config.build_settings['INFOPLIST_FILE'] = 'Info.plist'
+            config.build_settings['GENERATE_INFOPLIST_FILE'] = 'NO'
+          end
+          # Добавление всех .m и .h файлов (если они есть)
           Dir.glob('*.{h,m}').each { |f| target.add_file_references([project.main_group.new_file(f)]) }
           project.save
           "
 
-      - name: Build
+      # 3. Сборка проекта (без подписи)
+      - name: Build Project
         run: |
-          xcodebuild -project Rumble.xcodeproj -scheme Rumble -sdk iphoneos -configuration Release \
-          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO AD_HOC_CODE_SIGNING_ALLOWED=YES \
-          COMPILER_INDEX_STORE_ENABLE=NO VALIDATE_PRODUCT=NO clean build
+          xcodebuild -project Rumble.xcodeproj \
+            -scheme Rumble \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            VALIDATE_PRODUCT=NO \
+            clean build
 
-      - name: Create IPA
+      # 4. Упаковка в IPA
+      - name: Package IPA
         run: |
           mkdir -p Payload
-          # Находим путь к приложению и копируем его
           APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Rumble.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ Ошибка: Не найден собранный .app файл"
+            exit 1
+          fi
+          echo "📦 Найден .app по пути: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r Rumble.ipa Payload
+          echo "✅ IPA-пакет успешно создан"
 
-      - name: Upload
+      # 5. Загрузка артефакта с информацией о сборке
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4.1.0
         with:
-          name: Rumble-Success-IPA
+          name: Rumble-IPA-unsigned
           path: Rumble.ipa
+          if-no-files-found: error # Без IPA загрузка не должна проходить
+
+      # 6. Опционально: Загрузка лога сборки для диагностики
+      - name: Upload Build Log
+        if: always() # Загружать лог даже при ошибке сборки
+        uses: actions/upload-artifact@v4.1.0
+        with:
+          name: build-log
+          path: ~/Library/Logs/DiagnosticReports/
+          retention-days: 7
